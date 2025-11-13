@@ -22,7 +22,7 @@ elseif(NOT APPLE)
 endif()
 
 add_library(
-    piper_phonemize SHARED
+    piper_phonemize
     src/phonemize.cpp
     src/phoneme_ids.cpp
     src/tashkeel.cpp

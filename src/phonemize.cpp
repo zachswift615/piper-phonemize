@@ -151,8 +151,14 @@ static int synth_callback(short *wav, int numsamples, espeak_EVENT *events) {
     return 0;
   }
 
+  // DIAGNOSTIC: Callback invoked
+  fprintf(stderr, "[PIPER_DEBUG] synth_callback invoked, numsamples=%d\n", numsamples);
+
   while (events && events->type != espeakEVENT_LIST_TERMINATED) {
     if (events->type == espeakEVENT_PHONEME) {
+      // DIAGNOSTIC: Phoneme event received
+      fprintf(stderr, "[PIPER_DEBUG]   Phoneme event: pos=%d\n", events->text_position);
+
       // Capture the text position for this phoneme
       g_phoneme_capture.positions.push_back(events->text_position);
 
@@ -187,6 +193,9 @@ phonemize_eSpeak_with_positions(std::string text, eSpeakPhonemeConfig &config,
   // Set up synthesis callback to capture events
   espeak_SetSynthCallback(synth_callback);
 
+  // DIAGNOSTIC: Confirm callback registration
+  fprintf(stderr, "[PIPER_DEBUG] Registered synth_callback for position tracking\n");
+
   // Modified by eSpeak
   std::string textCopy(text);
 
@@ -200,6 +209,9 @@ phonemize_eSpeak_with_positions(std::string text, eSpeakPhonemeConfig &config,
     g_phoneme_capture.positions.clear();
     g_phoneme_capture.capturing = true;
 
+    // DIAGNOSTIC: Confirm capture enabled
+    fprintf(stderr, "[PIPER_DEBUG] Enabled phoneme capture for clause\n");
+
     // Synthesize to trigger callbacks (output is ignored)
     int clauseStart = inputTextPointer - textCopy.c_str();
     espeak_Synth(inputTextPointer, strlen(inputTextPointer),
@@ -207,6 +219,10 @@ phonemize_eSpeak_with_positions(std::string text, eSpeakPhonemeConfig &config,
     espeak_Synchronize();
 
     g_phoneme_capture.capturing = false;
+
+    // DIAGNOSTIC: Show captured positions
+    fprintf(stderr, "[PIPER_DEBUG] Captured %zu positions from espeak\n",
+            g_phoneme_capture.positions.size());
 
     // Get IPA phonemes using the standard API
     std::string clausePhonemes(espeak_TextToPhonemesWithTerminator(
@@ -355,6 +371,10 @@ phonemize_eSpeak_with_positions(std::string text, eSpeakPhonemeConfig &config,
     }
 
   } // while inputTextPointer != NULL
+
+  // DIAGNOSTIC: Final phoneme count
+  fprintf(stderr, "[PIPER_DEBUG] Returning %zu phoneme sequences with positions\n",
+          positions.size());
 
   // Reset callback
   espeak_SetSynthCallback(NULL);

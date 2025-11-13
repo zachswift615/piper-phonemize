@@ -154,10 +154,22 @@ static int synth_callback(short *wav, int numsamples, espeak_EVENT *events) {
   // DIAGNOSTIC: Callback invoked
   fprintf(stderr, "[PIPER_DEBUG] synth_callback invoked, numsamples=%d\n", numsamples);
 
+  // DIAGNOSTIC: Check if events is NULL
+  if (!events) {
+    fprintf(stderr, "[PIPER_DEBUG]   ERROR: events pointer is NULL!\n");
+    return 0;
+  }
+
+  int event_count = 0;
   while (events && events->type != espeakEVENT_LIST_TERMINATED) {
+    event_count++;
+    // DIAGNOSTIC: Log ALL event types
+    fprintf(stderr, "[PIPER_DEBUG]   Event #%d: type=%d, pos=%d\n",
+            event_count, events->type, events->text_position);
+
     if (events->type == espeakEVENT_PHONEME) {
       // DIAGNOSTIC: Phoneme event received
-      fprintf(stderr, "[PIPER_DEBUG]   Phoneme event: pos=%d\n", events->text_position);
+      fprintf(stderr, "[PIPER_DEBUG]   --> PHONEME event: pos=%d\n", events->text_position);
 
       // Capture the text position for this phoneme
       g_phoneme_capture.positions.push_back(events->text_position);
@@ -168,6 +180,9 @@ static int synth_callback(short *wav, int numsamples, espeak_EVENT *events) {
     }
     events++;
   }
+
+  // DIAGNOSTIC: Report total events processed
+  fprintf(stderr, "[PIPER_DEBUG]   Processed %d events\n", event_count);
 
   return 0;
 }

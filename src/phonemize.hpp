@@ -46,6 +46,12 @@ struct eSpeakPhonemeConfig {
   std::shared_ptr<PhonemeMap> phonemeMap;
 };
 
+// Position information for a single phoneme
+struct PhonemePosition {
+  int32_t text_position;  // Character offset in source text
+  int32_t length;         // Number of characters
+};
+
 // Phonemizes text using espeak-ng.
 // Returns phonemes for each sentence as a separate std::vector.
 //
@@ -53,6 +59,15 @@ struct eSpeakPhonemeConfig {
 PIPERPHONEMIZE_EXPORT void
 phonemize_eSpeak(std::string text, eSpeakPhonemeConfig &config,
                  std::vector<std::vector<Phoneme>> &phonemes);
+
+// Phonemizes text using espeak-ng with position tracking.
+// Returns phonemes and their corresponding source text positions.
+//
+// Assumes espeak_Initialize has already been called.
+PIPERPHONEMIZE_EXPORT void
+phonemize_eSpeak_with_positions(std::string text, eSpeakPhonemeConfig &config,
+                                 std::vector<std::vector<Phoneme>> &phonemes,
+                                 std::vector<std::vector<PhonemePosition>> &positions);
 
 enum TextCasing {
   CASING_IGNORE = 0,

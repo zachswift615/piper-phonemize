@@ -52,6 +52,13 @@ struct PhonemePosition {
   int32_t length;         // Number of characters
 };
 
+// Result struct that includes phonemes, normalized text, and character mapping
+struct PhonemeResult {
+  std::vector<std::vector<Phoneme>> phonemes;
+  std::string normalized_text;  // Text after espeak normalization
+  std::vector<std::pair<int, int>> char_mapping;  // [original_pos, normalized_pos] pairs
+};
+
 // Phonemizes text using espeak-ng.
 // Returns phonemes for each sentence as a separate std::vector.
 //
@@ -68,6 +75,14 @@ PIPERPHONEMIZE_EXPORT void
 phonemize_eSpeak_with_positions(std::string text, eSpeakPhonemeConfig &config,
                                  std::vector<std::vector<Phoneme>> &phonemes,
                                  std::vector<std::vector<PhonemePosition>> &positions);
+
+// Phonemizes text using espeak-ng and captures normalized text.
+// Returns PhonemeResult containing phonemes, normalized text, and character mapping.
+//
+// Assumes espeak_Initialize has already been called.
+PIPERPHONEMIZE_EXPORT void
+phonemize_eSpeak_with_normalized(std::string text, eSpeakPhonemeConfig &config,
+                                  PhonemeResult &result);
 
 enum TextCasing {
   CASING_IGNORE = 0,

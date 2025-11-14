@@ -104,8 +104,8 @@ if(NOT DEFINED ESPEAK_NG_DIR)
     ExternalProject_Add(
         espeak_ng_external
         PREFIX "${CMAKE_CURRENT_BINARY_DIR}/e"
-        # Use local fork with normalized text support
-        SOURCE_DIR "/Users/zachswift/projects/espeak-ng"
+        # Use local fork with normalized text support (sibling directory)
+        SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../espeak-ng"
         CMAKE_ARGS -DCMAKE_INSTALL_PREFIX:PATH=${ESPEAK_NG_DIR}
         CMAKE_ARGS -DUSE_ASYNC:BOOL=OFF
         CMAKE_ARGS -DBUILD_SHARED_LIBS:BOOL=ON

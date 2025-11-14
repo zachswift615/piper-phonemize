@@ -137,15 +137,32 @@ phonemize_eSpeak(std::string text, eSpeakPhonemeConfig &config,
 // Position tracking implementation
 // ----------------------------------------------------------------------------
 
-// Thread-local storage for capturing phoneme events during synthesis
+// Represents a single word with its character position and the phonemes it contains
+struct WordInfo {
+  int32_t text_position;  // Character offset where word starts in source text
+  int32_t length;         // Number of characters in the word
+  std::vector<size_t> phoneme_indices;  // Indices of phonemes belonging to this word
+};
+
+// Thread-local storage for capturing phoneme and word events during synthesis
+// NOTE: espeak-ng provides WORD-LEVEL position data, not phoneme-level.
+// All phonemes in a word share the same text_position from espeak.
 struct PhonemeEventCapture {
-  std::vector<int32_t> positions;
+  std::vector<int32_t> phoneme_positions;  // text_position for each phoneme (word-level, not character-level)
+  std::vector<WordInfo> words;             // Words with their positions and phoneme groupings
   bool capturing = false;
+  size_t current_phoneme_index = 0;        // Counter for phonemes as they arrive
 };
 
 thread_local PhonemeEventCapture g_phoneme_capture;
 
-// Synthesis callback that captures phoneme events from espeak-ng
+// Synthesis callback that captures phoneme and word events from espeak-ng
+//
+// IMPORTANT: espeak-ng provides WORD-LEVEL position tracking, not phoneme-level.
+// - WORD events (type=1) give us the text_position and length (character count) of each word
+// - PHONEME events (type=7) give us phonemes, but their text_position is the word's position, not unique per phoneme
+//
+// Strategy: Group phonemes by word, then assign each phoneme the full word's character range.
 static int synth_callback(short *wav, int numsamples, espeak_EVENT *events) {
   if (!g_phoneme_capture.capturing) {
     return 0;
@@ -161,28 +178,55 @@ static int synth_callback(short *wav, int numsamples, espeak_EVENT *events) {
   }
 
   int event_count = 0;
+  WordInfo* current_word = nullptr;
+
   while (events && events->type != espeakEVENT_LIST_TERMINATED) {
     event_count++;
+
     // DIAGNOSTIC: Log ALL event types
-    fprintf(stderr, "[PIPER_DEBUG]   Event #%d: type=%d, pos=%d\n",
-            event_count, events->type, events->text_position);
+    fprintf(stderr, "[PIPER_DEBUG]   Event #%d: type=%d, text_pos=%d, length=%d\n",
+            event_count, events->type, events->text_position, events->length);
 
-    if (events->type == espeakEVENT_PHONEME) {
-      // DIAGNOSTIC: Phoneme event received
-      fprintf(stderr, "[PIPER_DEBUG]   --> PHONEME event: pos=%d\n", events->text_position);
+    if (events->type == espeakEVENT_WORD) {
+      // WORD event: Start of a new word with its position and length
+      fprintf(stderr, "[PIPER_DEBUG]   --> WORD event: text_pos=%d, length=%d\n",
+              events->text_position, events->length);
 
-      // Capture the text position for this phoneme
-      g_phoneme_capture.positions.push_back(events->text_position);
+      // Create a new word entry
+      WordInfo word;
+      word.text_position = events->text_position;
+      word.length = events->length;
+      g_phoneme_capture.words.push_back(word);
+      current_word = &g_phoneme_capture.words.back();
 
-      // Store the phoneme name (UTF8 string in id.string)
-      // We don't actually need to store these since we get IPA phonemes separately
-      // Just tracking positions is enough
+    } else if (events->type == espeakEVENT_PHONEME) {
+      // PHONEME event: A phoneme belonging to the current word
+      fprintf(stderr, "[PIPER_DEBUG]   --> PHONEME event: text_pos=%d (phoneme #%zu)\n",
+              events->text_position, g_phoneme_capture.current_phoneme_index);
+
+      // Store the raw position (for debugging/verification purposes)
+      g_phoneme_capture.phoneme_positions.push_back(events->text_position);
+
+      // Associate this phoneme with the current word
+      if (current_word) {
+        current_word->phoneme_indices.push_back(g_phoneme_capture.current_phoneme_index);
+        fprintf(stderr, "[PIPER_DEBUG]       -> Assigned to word at pos=%d, len=%d\n",
+                current_word->text_position, current_word->length);
+      } else {
+        // Edge case: Phoneme before first WORD event (shouldn't happen in normal espeak output)
+        fprintf(stderr, "[PIPER_DEBUG]       -> WARNING: Phoneme before first WORD event!\n");
+      }
+
+      g_phoneme_capture.current_phoneme_index++;
     }
+
     events++;
   }
 
   // DIAGNOSTIC: Report total events processed
-  fprintf(stderr, "[PIPER_DEBUG]   Processed %d events\n", event_count);
+  fprintf(stderr, "[PIPER_DEBUG]   Processed %d events (%zu words, %zu phonemes)\n",
+          event_count, g_phoneme_capture.words.size(),
+          g_phoneme_capture.phoneme_positions.size());
 
   return 0;
 }
@@ -221,7 +265,9 @@ phonemize_eSpeak_with_positions(std::string text, eSpeakPhonemeConfig &config,
 
   while (inputTextPointer != NULL) {
     // Clear and enable capture for this clause
-    g_phoneme_capture.positions.clear();
+    g_phoneme_capture.phoneme_positions.clear();
+    g_phoneme_capture.words.clear();
+    g_phoneme_capture.current_phoneme_index = 0;
     g_phoneme_capture.capturing = true;
 
     // DIAGNOSTIC: Confirm capture enabled
@@ -235,9 +281,22 @@ phonemize_eSpeak_with_positions(std::string text, eSpeakPhonemeConfig &config,
 
     g_phoneme_capture.capturing = false;
 
-    // DIAGNOSTIC: Show captured positions
-    fprintf(stderr, "[PIPER_DEBUG] Captured %zu positions from espeak\n",
-            g_phoneme_capture.positions.size());
+    // DIAGNOSTIC: Show captured data
+    fprintf(stderr, "[PIPER_DEBUG] Captured %zu words and %zu phoneme positions from espeak\n",
+            g_phoneme_capture.words.size(),
+            g_phoneme_capture.phoneme_positions.size());
+
+    // DIAGNOSTIC: Show word groupings
+    for (size_t i = 0; i < g_phoneme_capture.words.size(); i++) {
+      const auto& word = g_phoneme_capture.words[i];
+      fprintf(stderr, "[PIPER_DEBUG]   Word #%zu: pos=%d, len=%d, phonemes=[",
+              i, word.text_position, word.length);
+      for (size_t j = 0; j < word.phoneme_indices.size(); j++) {
+        fprintf(stderr, "%zu%s", word.phoneme_indices[j],
+                j + 1 < word.phoneme_indices.size() ? ", " : "");
+      }
+      fprintf(stderr, "]\n");
+    }
 
     // Get IPA phonemes using the standard API
     std::string clausePhonemes(espeak_TextToPhonemesWithTerminator(
@@ -278,37 +337,21 @@ phonemize_eSpeak_with_positions(std::string text, eSpeakPhonemeConfig &config,
                                 phonemesRange.end());
     }
 
+    // Step 1: Add all phonemes to the sentence, tracking which ones came from espeak vs synthetic
     auto phonemeIter = mappedSentPhonemes.begin();
     auto phonemeEnd = mappedSentPhonemes.end();
-    size_t posIdx = 0;
+    size_t phoneme_start_index = sentencePhonemes->size();  // Remember where this clause's phonemes start
+    std::vector<size_t> espeak_phoneme_indices;  // Track which sentence indices correspond to espeak phonemes
 
     if (config.keepLanguageFlags) {
-      // No phoneme filter
+      // No phoneme filter - add all phonemes directly
       while (phonemeIter != phonemeEnd) {
         sentencePhonemes->push_back(*phonemeIter);
-
-        // Create position info
-        PhonemePosition pos;
-        if (posIdx < g_phoneme_capture.positions.size()) {
-          pos.text_position = g_phoneme_capture.positions[posIdx];
-          // Calculate length from next position or use 1 as default
-          if (posIdx + 1 < g_phoneme_capture.positions.size()) {
-            pos.length = g_phoneme_capture.positions[posIdx + 1] - pos.text_position;
-          } else {
-            pos.length = 1;
-          }
-        } else {
-          // No position data available
-          pos.text_position = -1;
-          pos.length = 0;
-        }
-        sentencePositions->push_back(pos);
-
+        espeak_phoneme_indices.push_back(sentencePhonemes->size() - 1);
         phonemeIter++;
-        posIdx++;
       }
     } else {
-      // Filter out (lang) switch (flags).
+      // Filter out (lang) switch (flags)
       bool inLanguageFlag = false;
 
       while (phonemeIter != phonemeEnd) {
@@ -321,31 +364,45 @@ phonemize_eSpeak_with_positions(std::string text, eSpeakPhonemeConfig &config,
           // Start of (lang) switch
           inLanguageFlag = true;
         } else {
+          // Regular phoneme - add it
           sentencePhonemes->push_back(*phonemeIter);
-
-          // Create position info
-          PhonemePosition pos;
-          if (posIdx < g_phoneme_capture.positions.size()) {
-            pos.text_position = g_phoneme_capture.positions[posIdx];
-            // Calculate length from next position or use 1 as default
-            if (posIdx + 1 < g_phoneme_capture.positions.size()) {
-              pos.length = g_phoneme_capture.positions[posIdx + 1] - pos.text_position;
-            } else {
-              pos.length = 1;
-            }
-          } else {
-            // No position data available
-            pos.text_position = -1;
-            pos.length = 0;
-          }
-          sentencePositions->push_back(pos);
+          espeak_phoneme_indices.push_back(sentencePhonemes->size() - 1);
         }
 
         phonemeIter++;
-        if (!inLanguageFlag && *phonemeIter != U'(') {
-          posIdx++;
-        }
       }
+    }
+
+    // Step 2: Distribute word positions to phonemes
+    // Build a lookup table: espeak_phoneme_index -> PhonemePosition
+    std::map<size_t, PhonemePosition> position_map;
+
+    for (const auto& word : g_phoneme_capture.words) {
+      // Assign this word's full character range to all its phonemes
+      PhonemePosition word_pos;
+      word_pos.text_position = word.text_position;
+      word_pos.length = word.length;
+
+      for (size_t espeak_idx : word.phoneme_indices) {
+        position_map[espeak_idx] = word_pos;
+      }
+    }
+
+    // Step 3: Apply positions to the phonemes we actually added
+    // Note: espeak may generate more/fewer phonemes than what we ended up with after filtering/mapping
+    for (size_t i = 0; i < espeak_phoneme_indices.size(); i++) {
+      PhonemePosition pos;
+
+      if (position_map.count(i) > 0) {
+        // We have word position data for this phoneme
+        pos = position_map[i];
+      } else {
+        // No position data (edge case: phoneme before first word, or data mismatch)
+        pos.text_position = -1;
+        pos.length = 0;
+      }
+
+      sentencePositions->push_back(pos);
     }
 
     // Add appropriate punctuation depending on terminator type

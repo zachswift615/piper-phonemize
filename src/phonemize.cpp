@@ -152,6 +152,7 @@ struct PhonemeEventCapture {
   std::vector<WordInfo> words;             // Words with their positions and phoneme groupings
   bool capturing = false;
   size_t current_phoneme_index = 0;        // Counter for phonemes as they arrive
+  WordInfo* current_word = nullptr;        // Pointer to the current word being populated (persists across callback invocations)
 };
 
 thread_local PhonemeEventCapture g_phoneme_capture;
@@ -178,7 +179,6 @@ static int synth_callback(short *wav, int numsamples, espeak_EVENT *events) {
   }
 
   int event_count = 0;
-  WordInfo* current_word = nullptr;
 
   while (events && events->type != espeakEVENT_LIST_TERMINATED) {
     event_count++;
@@ -197,7 +197,7 @@ static int synth_callback(short *wav, int numsamples, espeak_EVENT *events) {
       word.text_position = events->text_position;
       word.length = events->length;
       g_phoneme_capture.words.push_back(word);
-      current_word = &g_phoneme_capture.words.back();
+      g_phoneme_capture.current_word = &g_phoneme_capture.words.back();
 
     } else if (events->type == espeakEVENT_PHONEME) {
       // PHONEME event: A phoneme belonging to the current word
@@ -208,10 +208,10 @@ static int synth_callback(short *wav, int numsamples, espeak_EVENT *events) {
       g_phoneme_capture.phoneme_positions.push_back(events->text_position);
 
       // Associate this phoneme with the current word
-      if (current_word) {
-        current_word->phoneme_indices.push_back(g_phoneme_capture.current_phoneme_index);
+      if (g_phoneme_capture.current_word) {
+        g_phoneme_capture.current_word->phoneme_indices.push_back(g_phoneme_capture.current_phoneme_index);
         fprintf(stderr, "[PIPER_DEBUG]       -> Assigned to word at pos=%d, len=%d\n",
-                current_word->text_position, current_word->length);
+                g_phoneme_capture.current_word->text_position, g_phoneme_capture.current_word->length);
       } else {
         // Edge case: Phoneme before first WORD event (shouldn't happen in normal espeak output)
         fprintf(stderr, "[PIPER_DEBUG]       -> WARNING: Phoneme before first WORD event!\n");
@@ -268,6 +268,7 @@ phonemize_eSpeak_with_positions(std::string text, eSpeakPhonemeConfig &config,
     g_phoneme_capture.phoneme_positions.clear();
     g_phoneme_capture.words.clear();
     g_phoneme_capture.current_phoneme_index = 0;
+    g_phoneme_capture.current_word = nullptr;
     g_phoneme_capture.capturing = true;
 
     // DIAGNOSTIC: Confirm capture enabled

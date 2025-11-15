@@ -170,11 +170,9 @@ static int synth_callback(short *wav, int numsamples, espeak_EVENT *events) {
   }
 
   // DIAGNOSTIC: Callback invoked
-  fprintf(stderr, "[PIPER_DEBUG] synth_callback invoked, numsamples=%d\n", numsamples);
 
   // DIAGNOSTIC: Check if events is NULL
   if (!events) {
-    fprintf(stderr, "[PIPER_DEBUG]   ERROR: events pointer is NULL!\n");
     return 0;
   }
 
@@ -184,13 +182,9 @@ static int synth_callback(short *wav, int numsamples, espeak_EVENT *events) {
     event_count++;
 
     // DIAGNOSTIC: Log ALL event types
-    fprintf(stderr, "[PIPER_DEBUG]   Event #%d: type=%d, text_pos=%d, length=%d\n",
-            event_count, events->type, events->text_position, events->length);
 
     if (events->type == espeakEVENT_WORD) {
       // WORD event: Start of a new word with its position and length
-      fprintf(stderr, "[PIPER_DEBUG]   --> WORD event: text_pos=%d, length=%d\n",
-              events->text_position, events->length);
 
       // Create a new word entry
       WordInfo word;
@@ -201,8 +195,6 @@ static int synth_callback(short *wav, int numsamples, espeak_EVENT *events) {
 
     } else if (events->type == espeakEVENT_PHONEME) {
       // PHONEME event: A phoneme belonging to the current word
-      fprintf(stderr, "[PIPER_DEBUG]   --> PHONEME event: text_pos=%d (phoneme #%zu)\n",
-              events->text_position, g_phoneme_capture.current_phoneme_index);
 
       // Store the raw position (for debugging/verification purposes)
       g_phoneme_capture.phoneme_positions.push_back(events->text_position);
@@ -210,11 +202,8 @@ static int synth_callback(short *wav, int numsamples, espeak_EVENT *events) {
       // Associate this phoneme with the current word
       if (g_phoneme_capture.current_word) {
         g_phoneme_capture.current_word->phoneme_indices.push_back(g_phoneme_capture.current_phoneme_index);
-        fprintf(stderr, "[PIPER_DEBUG]       -> Assigned to word at pos=%d, len=%d\n",
-                g_phoneme_capture.current_word->text_position, g_phoneme_capture.current_word->length);
       } else {
         // Edge case: Phoneme before first WORD event (shouldn't happen in normal espeak output)
-        fprintf(stderr, "[PIPER_DEBUG]       -> WARNING: Phoneme before first WORD event!\n");
       }
 
       g_phoneme_capture.current_phoneme_index++;
@@ -224,9 +213,6 @@ static int synth_callback(short *wav, int numsamples, espeak_EVENT *events) {
   }
 
   // DIAGNOSTIC: Report total events processed
-  fprintf(stderr, "[PIPER_DEBUG]   Processed %d events (%zu words, %zu phonemes)\n",
-          event_count, g_phoneme_capture.words.size(),
-          g_phoneme_capture.phoneme_positions.size());
 
   return 0;
 }
@@ -253,7 +239,6 @@ phonemize_eSpeak_with_positions(std::string text, eSpeakPhonemeConfig &config,
   espeak_SetSynthCallback(synth_callback);
 
   // DIAGNOSTIC: Confirm callback registration
-  fprintf(stderr, "[PIPER_DEBUG] Registered synth_callback for position tracking\n");
 
   // Modified by eSpeak
   std::string textCopy(text);
@@ -272,7 +257,6 @@ phonemize_eSpeak_with_positions(std::string text, eSpeakPhonemeConfig &config,
     g_phoneme_capture.capturing = true;
 
     // DIAGNOSTIC: Confirm capture enabled
-    fprintf(stderr, "[PIPER_DEBUG] Enabled phoneme capture for clause\n");
 
     // Synthesize to trigger callbacks (output is ignored)
     int clauseStart = inputTextPointer - textCopy.c_str();
@@ -283,21 +267,6 @@ phonemize_eSpeak_with_positions(std::string text, eSpeakPhonemeConfig &config,
     g_phoneme_capture.capturing = false;
 
     // DIAGNOSTIC: Show captured data
-    fprintf(stderr, "[PIPER_DEBUG] Captured %zu words and %zu phoneme positions from espeak\n",
-            g_phoneme_capture.words.size(),
-            g_phoneme_capture.phoneme_positions.size());
-
-    // DIAGNOSTIC: Show word groupings
-    for (size_t i = 0; i < g_phoneme_capture.words.size(); i++) {
-      const auto& word = g_phoneme_capture.words[i];
-      fprintf(stderr, "[PIPER_DEBUG]   Word #%zu: pos=%d, len=%d, phonemes=[",
-              i, word.text_position, word.length);
-      for (size_t j = 0; j < word.phoneme_indices.size(); j++) {
-        fprintf(stderr, "%zu%s", word.phoneme_indices[j],
-                j + 1 < word.phoneme_indices.size() ? ", " : "");
-      }
-      fprintf(stderr, "]\n");
-    }
 
     // Get IPA phonemes using the standard API
     std::string clausePhonemes(espeak_TextToPhonemesWithTerminator(
@@ -446,8 +415,6 @@ phonemize_eSpeak_with_positions(std::string text, eSpeakPhonemeConfig &config,
   } // while inputTextPointer != NULL
 
   // DIAGNOSTIC: Final phoneme count
-  fprintf(stderr, "[PIPER_DEBUG] Returning %zu phoneme sequences with positions\n",
-          positions.size());
 
   // Reset callback
   espeak_SetSynthCallback(NULL);

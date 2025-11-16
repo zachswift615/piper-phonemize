@@ -1,12 +1,17 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <ctime>
 
 #include <espeak-ng/speak_lib.h>
 #include <onnxruntime_cxx_api.h>
 
 #include "phonemize.hpp"
 #include "uni_algo.h"
+
+// Version identifier for tracking library builds
+#define PIPER_PHONEMIZE_VERSION "2024.11.16-offset-2"
+#define PIPER_PHONEMIZE_BUILD_TIME __DATE__ " " __TIME__
 
 namespace piper {
 
@@ -187,14 +192,20 @@ static int synth_callback(short *wav, int numsamples, espeak_EVENT *events) {
       // WORD event: Start of a new word with its position and length
 
       // DEBUG: Log raw espeak WORD event data with more context
-      fprintf(stderr, "[DEBUG] WORD event: text_position=%d, length=%d, word_count=%zu\n",
+      fprintf(stderr, "[PIPER-PHONEMIZE v%s built %s] WORD event: raw_position=%d, length=%d, word_count=%zu, ",
+              PIPER_PHONEMIZE_VERSION, PIPER_PHONEMIZE_BUILD_TIME,
               events->text_position, events->length, g_phoneme_capture.words.size());
 
       // Create a new word entry
       WordInfo word;
       // FIX: espeak-ng positions need adjustment. The raw events show position=1
-      // for the first word, but we need 0-based indexing. Simply subtract 1.
-      word.text_position = events->text_position > 0 ? events->text_position - 1 : 0;
+      // for the first word, but we need 0-based indexing. Testing shows we need
+      // to subtract 2 to get correct alignment.
+      // TODO: Investigate why the offset is 2, not 1.
+      int adjusted_position = events->text_position >= 2 ? events->text_position - 2 : 0;
+      fprintf(stderr, "adjusted_position=%d (offset=-2)\n", adjusted_position);
+
+      word.text_position = adjusted_position;
       word.length = events->length;
       g_phoneme_capture.words.push_back(word);
       g_phoneme_capture.current_word = &g_phoneme_capture.words.back();
@@ -353,7 +364,12 @@ phonemize_eSpeak_with_positions(std::string text, eSpeakPhonemeConfig &config,
     // Build a lookup table: espeak_phoneme_index -> PhonemePosition
     std::map<size_t, PhonemePosition> position_map;
 
-    for (const auto& word : g_phoneme_capture.words) {
+    fprintf(stderr, "[PIPER-PHONEMIZE] Processing %zu words with positions:\n", g_phoneme_capture.words.size());
+    for (size_t wi = 0; wi < g_phoneme_capture.words.size(); wi++) {
+      const auto& word = g_phoneme_capture.words[wi];
+      fprintf(stderr, "  Word %zu: position=%d, length=%d, phoneme_count=%zu\n",
+              wi, word.text_position, word.length, word.phoneme_indices.size());
+
       // Assign this word's full character range to all its phonemes
       PhonemePosition word_pos;
       word_pos.text_position = word.text_position;
@@ -557,7 +573,10 @@ phonemize_eSpeak_with_normalized(std::string text, eSpeakPhonemeConfig &config,
   int map_count = espeak_GetCharacterMapping(mapping, 1024);
   result.char_mapping.reserve(map_count);
   for (int i = 0; i < map_count; i++) {
-    result.char_mapping.push_back({mapping[i][0], mapping[i][1]});
+    // FIX: Apply same -2 offset as WORD events for consistency
+    // espeak-ng positions are 1-based, but we need 0-based indexing
+    int adjusted_orig_pos = mapping[i][0] >= 2 ? mapping[i][0] - 2 : 0;
+    result.char_mapping.push_back({adjusted_orig_pos, mapping[i][1]});
   }
 
 } /* phonemize_eSpeak_with_normalized */

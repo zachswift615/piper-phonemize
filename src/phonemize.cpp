@@ -469,12 +469,23 @@ phonemize_eSpeak_with_normalized(std::string text, eSpeakPhonemeConfig &config,
   const char *inputTextPointer = textCopy.c_str();
   int terminator = 0;
 
+  // NEW: Accumulate normalized text across all clauses
+  // (espeak-ng processes long text in chunks, GetNormalizedText() returns current chunk)
+  std::string accumulatedNormalizedText;
+
   while (inputTextPointer != NULL) {
     // Modified espeak-ng API to get access to clause terminator
     std::string clausePhonemes(espeak_TextToPhonemesWithTerminator(
         (const void **)&inputTextPointer,
         /*textmode*/ espeakCHARS_AUTO,
         /*phonememode = IPA*/ 0x02, &terminator));
+
+    // NEW: Capture normalized text for this clause immediately
+    // Must be done inside the loop because espeak-ng only keeps the last clause's normalized text
+    const char* clauseNormalized = espeak_GetNormalizedText();
+    if (clauseNormalized) {
+      accumulatedNormalizedText += std::string(clauseNormalized);
+    }
 
     // Decompose, e.g. "ç" -> "c" + "̧"
     auto phonemesNorm = una::norm::to_nfd_utf8(clausePhonemes);
@@ -562,11 +573,9 @@ phonemize_eSpeak_with_normalized(std::string text, eSpeakPhonemeConfig &config,
 
   } // while inputTextPointer != NULL
 
-  // NEW: Get normalized text after phonemization
-  const char* normalized = espeak_GetNormalizedText();
-  if (normalized) {
-    result.normalized_text = std::string(normalized);
-  }
+  // NEW: Use accumulated normalized text from all clauses
+  // (previously captured after loop, but that only got the last clause)
+  result.normalized_text = accumulatedNormalizedText;
 
   // NEW: Get character position mapping
   int mapping[1024][2];

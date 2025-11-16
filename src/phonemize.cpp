@@ -186,9 +186,15 @@ static int synth_callback(short *wav, int numsamples, espeak_EVENT *events) {
     if (events->type == espeakEVENT_WORD) {
       // WORD event: Start of a new word with its position and length
 
+      // DEBUG: Log raw espeak WORD event data with more context
+      fprintf(stderr, "[DEBUG] WORD event: text_position=%d, length=%d, word_count=%zu\n",
+              events->text_position, events->length, g_phoneme_capture.words.size());
+
       // Create a new word entry
       WordInfo word;
-      word.text_position = events->text_position;
+      // FIX: espeak-ng positions need adjustment. The raw events show position=1
+      // for the first word, but we need 0-based indexing. Simply subtract 1.
+      word.text_position = events->text_position > 0 ? events->text_position - 1 : 0;
       word.length = events->length;
       g_phoneme_capture.words.push_back(word);
       g_phoneme_capture.current_word = &g_phoneme_capture.words.back();

@@ -10,7 +10,7 @@
 #include "uni_algo.h"
 
 // Version identifier for tracking library builds
-#define PIPER_PHONEMIZE_VERSION "2024.11.16-offset-2"
+#define PIPER_PHONEMIZE_VERSION "2024.11.16-offset-1"
 #define PIPER_PHONEMIZE_BUILD_TIME __DATE__ " " __TIME__
 
 namespace piper {
@@ -198,12 +198,11 @@ static int synth_callback(short *wav, int numsamples, espeak_EVENT *events) {
 
       // Create a new word entry
       WordInfo word;
-      // FIX: espeak-ng positions need adjustment. The raw events show position=1
-      // for the first word, but we need 0-based indexing. Testing shows we need
-      // to subtract 2 to get correct alignment.
-      // TODO: Investigate why the offset is 2, not 1.
-      int adjusted_position = events->text_position >= 2 ? events->text_position - 2 : 0;
-      fprintf(stderr, "adjusted_position=%d (offset=-2)\n", adjusted_position);
+      // FIX: espeak-ng WORD events use 1-based indexing (position=1 for first character).
+      // Convert to 0-based by subtracting 1.
+      // Note: Character mapping uses different indexing and needs -2 offset (applied separately).
+      int adjusted_position = events->text_position >= 1 ? events->text_position - 1 : 0;
+      fprintf(stderr, "adjusted_position=%d (offset=-1)\n", adjusted_position);
 
       word.text_position = adjusted_position;
       word.length = events->length;

@@ -254,7 +254,21 @@ phonemize_eSpeak_with_positions(std::string text, eSpeakPhonemeConfig &config,
   // Set up synthesis callback to capture events
   espeak_SetSynthCallback(synth_callback);
 
-  // DIAGNOSTIC: Confirm callback registration
+  // CRITICAL: Cancel any pending espeak synthesis from previous calls
+  // This clears espeak's internal text buffer and ensures we only process
+  // the text passed to THIS call, not buffered text from previous calls
+  espeak_Cancel();
+
+  // CRITICAL: Clear thread_local phoneme capture state from any previous call
+  // (thread_local persists across function calls on the same thread)
+  g_phoneme_capture.phoneme_positions.clear();
+  g_phoneme_capture.words.clear();
+  g_phoneme_capture.current_phoneme_index = 0;
+  g_phoneme_capture.current_word = nullptr;
+  g_phoneme_capture.capturing = false;  // Will be enabled per-clause in the loop
+
+  fprintf(stderr, "[PIPER-PHONEMIZE] Cleared g_phoneme_capture for new phonemization call\n");
+  fprintf(stderr, "[PIPER] ===== INPUT TEXT: '%s' =====\n", text.c_str());
 
   // Modified by eSpeak
   std::string textCopy(text);
@@ -435,7 +449,19 @@ phonemize_eSpeak_with_positions(std::string text, eSpeakPhonemeConfig &config,
 
   } // while inputTextPointer != NULL
 
-  // DIAGNOSTIC: Final phoneme count
+  // DIAGNOSTIC: Final phoneme count and positions
+  fprintf(stderr, "[PIPER] ===== OUTPUT: %zu sentences =====\n", phonemes.size());
+  for (size_t s = 0; s < phonemes.size() && s < positions.size(); s++) {
+    fprintf(stderr, "[PIPER] Sentence %zu: %zu phonemes\n", s, phonemes[s].size());
+    // Show first 5 phoneme positions for this sentence
+    for (size_t i = 0; i < std::min(size_t(5), phonemes[s].size()); i++) {
+      const auto& pos = positions[s][i];
+      fprintf(stderr, "[PIPER]   Phoneme[%zu]: pos=%d, len=%d\n", i, pos.text_position, pos.length);
+    }
+    if (phonemes[s].size() > 5) {
+      fprintf(stderr, "[PIPER]   ... and %zu more phonemes\n", phonemes[s].size() - 5);
+    }
+  }
 
   // Reset callback
   espeak_SetSynthCallback(NULL);
